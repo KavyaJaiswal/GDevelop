@@ -106,7 +106,12 @@ import { useKeyboardShortcutForCommandPalette } from '../CommandPalette/CommandH
 import useMainFrameCommands from './MainFrameCommands';
 import CommandPalette from '../CommandPalette/CommandPalette';
 import { isExtensionNameTaken } from '../ProjectManager/EventFunctionExtensionNameVerifier';
-import { type PreviewState } from './PreviewState.flow';
+import {
+  type PreviewState,
+  usePreviewDebuggerServerWatcher,
+} from './PreviewState';
+import { type HotReloadPreviewButtonProps } from '../HotReload/HotReloadPreviewButton';
+import HotReloadLogsDialog from '../HotReload/HotReloadLogsDialog';
 
 const GD_STARTUP_TIMES = global.GD_STARTUP_TIMES || [];
 
@@ -142,6 +147,12 @@ const initialPreviewState: PreviewState = {
   isPreviewOverriden: false,
   overridenPreviewLayoutName: null,
   overridenPreviewExternalLayoutName: null,
+};
+
+type LaunchPreviewOptions = {
+  networkPreview?: boolean,
+  hotReload?: boolean,
+  projectDataOnlyExport?: boolean,
 };
 
 export type Props = {
@@ -233,6 +244,15 @@ const MainFrame = (props: Props) => {
   const eventsFunctionsExtensionsContext = React.useContext(
     EventsFunctionsExtensionsContext
   );
+  const previewDebuggerServer =
+    _previewLauncher.current &&
+    _previewLauncher.current.getPreviewDebuggerServer();
+  const {
+    previewDebuggerIds,
+    hotReloadLogs,
+    clearHotReloadLogs,
+  } = usePreviewDebuggerServerWatcher(previewDebuggerServer);
+  const hasPreviewsRunning = !!previewDebuggerIds.length;
 
   // This is just for testing, to check if we're getting the right state
   // and gives us an idea about the number of re-renders.
@@ -802,13 +822,13 @@ const MainFrame = (props: Props) => {
     })).then(state => {
       currentProject.removeEventsFunctionsExtension(externalLayout.getName());
       _onProjectItemModified();
-    });
 
-    // Reload extensions to make sure the deleted extension is removed
-    // from the platform
-    eventsFunctionsExtensionsState.reloadProjectEventsFunctionsExtensions(
-      currentProject
-    );
+      // Reload extensions to make sure the deleted extension is removed
+      // from the platform
+      eventsFunctionsExtensionsState.reloadProjectEventsFunctionsExtensions(
+        currentProject
+      );
+    });
   };
 
   const renameLayout = (oldName: string, newName: string) => {
@@ -1028,7 +1048,11 @@ const MainFrame = (props: Props) => {
   );
 
   const launchPreview = React.useCallback(
-    (networkPreview: boolean, hotReload: boolean) => {
+    ({
+      networkPreview,
+      hotReload,
+      projectDataOnlyExport,
+    }: LaunchPreviewOptions) => {
       if (!currentProject) return;
       if (currentProject.getLayoutsCount() === 0) return;
 
@@ -1064,8 +1088,9 @@ const MainFrame = (props: Props) => {
             project: currentProject,
             layout,
             externalLayout,
-            networkPreview,
-            hotReload,
+            networkPreview: !!networkPreview,
+            hotReload: !!hotReload,
+            projectDataOnlyExport: !!projectDataOnlyExport,
           })
         )
         .catch(error => {
@@ -1085,6 +1110,30 @@ const MainFrame = (props: Props) => {
       previewState,
       state.editorTabs,
     ]
+  );
+
+  const launchNewPreview = React.useCallback(
+    () => launchPreview({ networkPreview: false }),
+    [launchPreview]
+  );
+
+  const launchHotReloadPreview = React.useCallback(
+    () => launchPreview({ networkPreview: false, hotReload: true }),
+    [launchPreview]
+  );
+
+  const launchNetworkPreview = React.useCallback(
+    () => launchPreview({ networkPreview: true, hotReload: false }),
+    [launchPreview]
+  );
+
+  const hotReloadPreviewButtonProps: HotReloadPreviewButtonProps = React.useMemo(
+    () => ({
+      hasPreviewsRunning,
+      launchProjectDataOnlyPreview: () =>
+        launchPreview({ hotReload: true, projectDataOnlyExport: true }),
+    }),
+    [hasPreviewsRunning, launchPreview]
   );
 
   const openLayout = React.useCallback(
@@ -1217,6 +1266,14 @@ const MainFrame = (props: Props) => {
       }));
     },
     [i18n, setState]
+  );
+
+  const launchDebuggerAndPreview = React.useCallback(
+    () => {
+      openDebugger();
+      launchHotReloadPreview();
+    },
+    [openDebugger, launchHotReloadPreview]
   );
 
   const openInstructionOrExpression = (
@@ -1689,17 +1746,10 @@ const MainFrame = (props: Props) => {
     previewEnabled:
       !!state.currentProject && state.currentProject.getLayoutsCount() > 0,
     onOpenProjectManager: toggleProjectManager,
-    onLaunchPreview: React.useCallback(
-      () => launchPreview(/*networkPreview=*/ false),
-      [launchPreview]
-    ),
-    onLaunchDebugPreview: React.useCallback(
-      () => {
-        openDebugger();
-        launchPreview(/*networkPreview=*/ false);
-      },
-      [openDebugger, launchPreview]
-    ),
+    hasPreviewsRunning,
+    onLaunchPreview: launchNewPreview,
+    onHotReloadPreview: launchHotReloadPreview,
+    onLaunchDebugPreview: launchDebuggerAndPreview,
     onOpenStartPage: openStartPage,
     onCreateProject: openCreateDialog,
     onOpenProject: chooseProject,
@@ -1798,6 +1848,7 @@ const MainFrame = (props: Props) => {
             }}
             freezeUpdate={!projectManagerOpen}
             unsavedChanges={props.unsavedChanges}
+            hotReloadPreviewButtonProps={hotReloadPreviewButtonProps}
           />
         )}
         {!state.currentProject && (
@@ -1815,19 +1866,11 @@ const MainFrame = (props: Props) => {
         requestUpdate={props.requestUpdate}
         simulateUpdateDownloaded={simulateUpdateDownloaded}
         simulateUpdateAvailable={simulateUpdateAvailable}
-        onOpenDebugger={() => {
-          openDebugger();
-          launchPreview(/*networkPreview=*/ false, /*hotReload=*/ false);
-        }}
-        onPreview={() => {
-          launchPreview(/*networkPreview=*/ false, /*hotReload=*/ false);
-        }}
-        onNetworkPreview={() => {
-          launchPreview(/*networkPreview=*/ true, /*hotReload=*/ false);
-        }}
-        onHotReloadPreview={() => {
-          launchPreview(/*networkPreview=*/ false, /*hotReload=*/ true);
-        }}
+        onOpenDebugger={launchDebuggerAndPreview}
+        hasPreviewsRunning={hasPreviewsRunning}
+        onPreviewWithoutHotReload={launchNewPreview}
+        onNetworkPreview={launchNetworkPreview}
+        onHotReloadPreview={launchHotReloadPreview}
         showNetworkPreviewButton={
           !!_previewLauncher.current &&
           _previewLauncher.current.canDoNetworkPreview()
@@ -1871,9 +1914,8 @@ const MainFrame = (props: Props) => {
                 projectItemName: editorTab.projectItemName,
                 setPreviewedLayout,
                 onOpenExternalEvents: openExternalEvents,
-                previewDebuggerServer:
-                  _previewLauncher.current &&
-                  _previewLauncher.current.getPreviewDebuggerServer(),
+                previewDebuggerServer,
+                hotReloadPreviewButtonProps,
                 onOpenLayout: name =>
                   openLayout(name, {
                     openEventsEditor: true,
@@ -2120,6 +2162,16 @@ const MainFrame = (props: Props) => {
       {state.gdjsDevelopmentWatcherEnabled &&
         renderGDJSDevelopmentWatcher &&
         renderGDJSDevelopmentWatcher()}
+      {!!hotReloadLogs.length && (
+        <HotReloadLogsDialog
+          logs={hotReloadLogs}
+          onClose={clearHotReloadLogs}
+          onLaunchNewPreview={() => {
+            clearHotReloadLogs();
+            launchNewPreview();
+          }}
+        />
+      )}
     </div>
   );
 };

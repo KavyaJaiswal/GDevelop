@@ -44,6 +44,7 @@ import SceneVariablesDialog from '../SceneEditor/SceneVariablesDialog';
 import { isExtensionNameTaken } from './EventFunctionExtensionNameVerifier';
 import { type UnsavedChanges } from '../MainFrame/UnsavedChangesContext';
 import { type MenuItemTemplate } from '../UI/Menu/Menu.flow';
+import { type HotReloadPreviewButtonProps } from '../HotReload/HotReloadPreviewButton';
 
 const LAYOUT_CLIPBOARD_KIND = 'Layout';
 const EXTERNAL_LAYOUT_CLIPBOARD_KIND = 'External layout';
@@ -278,6 +279,7 @@ type Props = {|
   onReloadEventsFunctionsExtensions: () => void,
   freezeUpdate: boolean,
   unsavedChanges?: UnsavedChanges,
+  hotReloadPreviewButtonProps: HotReloadPreviewButtonProps,
 |};
 
 type State = {|
@@ -1084,6 +1086,7 @@ export default class ProjectManager extends React.Component<Props, State> {
                 representing the number of levels unlocked by the player.
               </Trans>
             }
+            hotReloadPreviewButtonProps={this.props.hotReloadPreviewButtonProps}
           />
         )}
         {this.state.projectPropertiesDialogOpen && (
@@ -1128,6 +1131,7 @@ export default class ProjectManager extends React.Component<Props, State> {
                 this.props.unsavedChanges.triggerUnsavedChanges();
               this._onOpenLayoutVariables(null);
             }}
+            hotReloadPreviewButtonProps={this.props.hotReloadPreviewButtonProps}
           />
         )}
         {this.state.extensionsSearchDialogOpen && (

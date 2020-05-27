@@ -7,9 +7,11 @@ type CommandHandlers = {
   i18n: I18n,
   project: ?gdProject,
   previewEnabled: boolean,
+  hasPreviewsRunning: boolean,
   onOpenProjectManager: () => void,
   onLaunchPreview: () => void | Promise<void>,
   onLaunchDebugPreview: () => void,
+  onHotReloadPreview: () => void,
   onOpenStartPage: () => void,
   onCreateProject: () => void,
   onOpenProject: () => void,
@@ -34,9 +36,17 @@ const useMainFrameCommands = (handlers: CommandHandlers) => {
   });
 
   useCommand('LAUNCH_PREVIEW', {
-    displayText: t`Launch preview`,
+    displayText: handlers.hasPreviewsRunning
+      ? t`Launch another preview in a new window`
+      : t`Launch preview`,
     enabled: handlers.previewEnabled,
     handler: handlers.onLaunchPreview,
+  });
+
+  useCommand('HOT_RELOAD_PREVIEW', {
+    displayText: t`Apply changes to the running preview`,
+    enabled: handlers.hasPreviewsRunning,
+    handler: handlers.onHotReloadPreview,
   });
 
   useCommand('LAUNCH_DEBUG_PREVIEW', {
