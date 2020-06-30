@@ -52,7 +52,7 @@ describe('libGD.js - GDJS Code Generation integration tests', function () {
       ])
     );
 
-    var runCompiledEvents = generateCompiledEvents(gd, serializerElement);
+    var runCompiledEvents = generateCompiledEventsFromSerializedEvents(gd, serializerElement);
 
     const { gdjs, runtimeScene } = makeMinimalGDJSMock();
     runCompiledEvents(gdjs, runtimeScene);
@@ -117,7 +117,7 @@ describe('libGD.js - GDJS Code Generation integration tests', function () {
       ])
     );
 
-    var runCompiledEvents = generateCompiledEvents(gd, serializerElement);
+    var runCompiledEvents = generateCompiledEventsFromSerializedEvents(gd, serializerElement);
 
     const { gdjs, runtimeScene } = makeMinimalGDJSMock();
     runCompiledEvents(gdjs, runtimeScene);
@@ -207,7 +207,7 @@ describe('libGD.js - GDJS Code Generation integration tests', function () {
       ])
     );
 
-    var runCompiledEvents = generateCompiledEvents(gd, serializerElement);
+    var runCompiledEvents = generateCompiledEventsFromSerializedEvents(gd, serializerElement);
 
     const { gdjs, runtimeScene } = makeMinimalGDJSMock();
     runCompiledEvents(gdjs, runtimeScene);
@@ -216,6 +216,97 @@ describe('libGD.js - GDJS Code Generation integration tests', function () {
     expect(
       runtimeScene.getVariables().get('SuccessVariable').getAsNumber()
     ).toBe(1);
+  });
+
+  it('generates a working function with BuiltinCommonInstructions::Once', function () {
+    // Create events using the Trigger Once condition.
+    const eventsSerializerElement = gd.Serializer.fromJSON(
+      JSON.stringify([
+        {
+          disabled: false,
+          folded: false,
+          type: 'BuiltinCommonInstructions::Standard',
+          conditions: [
+            {
+              type: {
+                inverted: false,
+                value: 'BuiltinCommonInstructions::Once',
+              },
+              parameters: [],
+              subInstructions: [],
+            },
+          ],
+          actions: [
+            {
+              type: { inverted: false, value: 'ModVarScene' },
+              parameters: ['SuccessVariable', '+', '1'],
+              subInstructions: [],
+            },
+          ],
+          events: [],
+        },
+        {
+          disabled: false,
+          folded: false,
+          type: 'BuiltinCommonInstructions::Standard',
+          conditions: [
+            {
+              type: {
+                inverted: false,
+                value: 'BuiltinCommonInstructions::Once',
+              },
+              parameters: [],
+              subInstructions: [],
+            },
+          ],
+          actions: [
+            {
+              type: { inverted: false, value: 'ModVarScene' },
+              parameters: ['SuccessVariable', '+', '1'],
+              subInstructions: [],
+            },
+          ],
+          events: [],
+        },
+      ])
+    );
+
+    const project = new gd.ProjectHelper.createNewGDJSProject();
+    const eventsFunction = new gd.EventsFunction();
+    eventsFunction.getEvents().unserializeFrom(project, eventsSerializerElement);
+
+    const runCompiledEvents = generateCompiledEventsForEventsFunction(gd, project, eventsFunction);
+
+    const { gdjs, runtimeScene } = makeMinimalGDJSMock();
+    runtimeScene.getOnceTriggers().startNewFrame();
+    runCompiledEvents(gdjs, runtimeScene);
+    runtimeScene.getOnceTriggers().startNewFrame();
+    runCompiledEvents(gdjs, runtimeScene);
+
+    // Check that after running the compiled events twice, actions were
+    // executed only twice.
+    expect(runtimeScene.getVariables().has('SuccessVariable')).toBe(true);
+    expect(
+      runtimeScene.getVariables().get('SuccessVariable').getAsNumber()
+    ).toBe(2);
+
+    // Check that compiling again the events will result in stable ids for Trigger Once conditions
+    // (trigger once should not be launched again), even after a copy of the events function.
+    const eventsFunctionCopy = eventsFunction.clone();
+    const runCompiledEvents2 = generateCompiledEventsForEventsFunction(gd, project, eventsFunctionCopy);
+    runtimeScene.getOnceTriggers().startNewFrame();
+    runCompiledEvents2(gdjs, runtimeScene);
+    runtimeScene.getOnceTriggers().startNewFrame();
+    runCompiledEvents2(gdjs, runtimeScene);
+
+    expect(runtimeScene.getVariables().has('SuccessVariable')).toBe(true);
+    expect(
+      runtimeScene.getVariables().get('SuccessVariable').getAsNumber()
+    ).toBe(2);
+
+    eventsFunction.delete();
+    eventsFunctionCopy.delete();
+    project.delete();
   });
 });
 
@@ -227,17 +318,13 @@ describe('libGD.js - GDJS Code Generation integration tests', function () {
  * In this context, GDJS game engine does not exist, so you must pass a mock
  * to it to validate that the events are working properly.
  */
-function generateCompiledEvents(gd, eventsSerializerElement) {
-  const project = new gd.ProjectHelper.createNewGDJSProject();
-  const includeFiles = new gd.SetString();
-  const eventsFunction = new gd.EventsFunction();
-
-  eventsFunction.getEvents().unserializeFrom(project, eventsSerializerElement);
-
+function generateCompiledEventsForEventsFunction(gd, project, eventsFunction) {
   const namespace = 'functionNamespace';
   const eventsFunctionsExtensionCodeGenerator = new gd.EventsFunctionsExtensionCodeGenerator(
     project
-  );
+    );
+
+  const includeFiles = new gd.SetString();
   const code = eventsFunctionsExtensionCodeGenerator.generateFreeEventsFunctionCompleteCode(
     eventsFunction,
     namespace,
@@ -245,28 +332,44 @@ function generateCompiledEvents(gd, eventsSerializerElement) {
     true
   );
 
-  // Create a function with the generated code.
+  eventsFunctionsExtensionCodeGenerator.delete();
+  includeFiles.delete();
+
+  // Create a "real" JavaScript function with the generated code.
   const runCompiledEvents = new Function(
     'gdjs',
     'runtimeScene',
-    `${code}
+    `${code};
 return functionNamespace.func(runtimeScene, runtimeScene);`
   );
 
-  eventsFunctionsExtensionCodeGenerator.delete();
+  return runCompiledEvents;
+}
+
+/** Helper to create compiled events from serialized events, creating a project and the events function. */
+function generateCompiledEventsFromSerializedEvents(gd, eventsSerializerElement) {
+  const project = new gd.ProjectHelper.createNewGDJSProject();
+  const eventsFunction = new gd.EventsFunction();
+  eventsFunction.getEvents().unserializeFrom(project, eventsSerializerElement);
+
+  const runCompiledEvents = generateCompiledEventsForEventsFunction(gd, project, eventsFunction)
+
   eventsFunction.delete();
-  includeFiles.delete();
   project.delete();
 
   return runCompiledEvents;
 }
 
+
 /**
  * Create a minimal mock of GDJS with a RuntimeScene (`gdjs.RuntimeScene`),
- * supporting setting a variable (just enough to validate events logic).
+ * supporting setting a variable and using "Trigger Once" conditions
+ * (just enough to validate events logic).
  */
 function makeMinimalGDJSMock() {
   const runtimeSceneVariables = {};
+  const runtimeSceneOnceTriggers = {};
+  let runtimeSceneLastFrameOnceTrigger = {};
 
   return {
     gdjs: {
@@ -279,16 +382,34 @@ function makeMinimalGDJSMock() {
       getVariables: () => ({
         get: (variableName) => ({
           add: (value) => {
-            runtimeSceneVariables[variableName] += value;
+            runtimeSceneVariables[variableName] =
+              (runtimeSceneVariables[variableName] || 0) + value;
           },
           setNumber: (value) => {
             runtimeSceneVariables[variableName] = value;
           },
           getAsNumber: () => {
-            return runtimeSceneVariables[variableName];
+            return runtimeSceneVariables[variableName] || 0;
           },
         }),
-        has: (variableName) => !!runtimeSceneVariables[variableName],
+        has: (variableName) =>
+          runtimeSceneVariables.hasOwnProperty(variableName),
+      }),
+      getOnceTriggers: () => ({
+        startNewFrame: () => {
+          runtimeSceneLastFrameOnceTrigger = {};
+          for (var k in runtimeSceneOnceTriggers) {
+            if (runtimeSceneOnceTriggers.hasOwnProperty(k)) {
+              runtimeSceneLastFrameOnceTrigger[k] = runtimeSceneOnceTriggers[k];
+              delete runtimeSceneOnceTriggers[k];
+            }
+          }
+        },
+        triggerOnce: (triggerId) => {
+          runtimeSceneOnceTriggers[triggerId] = true;
+
+          return !runtimeSceneLastFrameOnceTrigger.hasOwnProperty(triggerId);
+        },
       }),
     },
   };
