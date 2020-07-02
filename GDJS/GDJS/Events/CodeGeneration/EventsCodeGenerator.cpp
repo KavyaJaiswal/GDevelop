@@ -796,7 +796,7 @@ gd::String EventsCodeGenerator::GenerateEventsListCode(
 
   // Generate a unique name for the function.
   gd::String uniqueId =
-      gd::String::From(GenerateSingleUsageUniqueIdFor(events));
+      gd::String::From(GenerateSingleUsageUniqueIdForEventsList());
   gd::String functionName =
       GetCodeNamespaceAccessor() + "eventsList" + uniqueId;
 
